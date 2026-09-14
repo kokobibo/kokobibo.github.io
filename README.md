@@ -1,7 +1,4 @@
-# kokobibo.github.io
-Movieclub page hosting
 
-<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
