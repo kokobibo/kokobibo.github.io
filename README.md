@@ -275,10 +275,6 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
     <p>One list. Everyone adds. One winner a month.</p>
   </div>
 
-  <div class="storage-warning" id="storageWarning" style="display:none;">
-    This preview isn't saving between page loads — everything still works, but publish the app to get a shareable link that syncs for everyone.
-  </div>
-
   <div class="card pick-panel">
     <h2>Tonight's Pick</h2>
     <div class="pick-display empty" id="pickDisplay">Add a few movies, then spin</div>
