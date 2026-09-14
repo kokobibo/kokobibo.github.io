@@ -133,6 +133,32 @@ button.pick-btn{
 button.pick-btn:hover:not(:disabled){ background: var(--velvet-bright); }
 button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
 
+.pick-auth{
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.pick-auth input{
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 11px 12px;
+  color: var(--cream);
+  font-family: 'Work Sans', sans-serif;
+  font-size: 14px;
+}
+.pick-auth input::placeholder{ color: #666f7d; }
+.pick-auth input:focus{ outline: none; border-color: var(--gold-dim); }
+.pick-status{
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--cream-dim);
+}
+.pick-status.error{ color: var(--velvet-bright); }
+
 /* Add form */
 .add-form{
   display: flex;
@@ -286,7 +312,11 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
     <h2>Tonight's Pick</h2>
     <div class="pick-display empty" id="pickDisplay">Add a few movies, then spin</div>
     <div class="pick-meta" id="pickMeta"></div>
+    <div class="pick-auth">
+      <input type="password" id="pickPasscode" placeholder="Passcode" autocomplete="off">
+    </div>
     <button class="pick-btn" id="pickBtn" disabled>Pick this month's movie</button>
+    <div class="pick-status" id="pickStatus">Passcode required to pick.</div>
   </div>
 
   <div class="card">
@@ -306,6 +336,10 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
       <h2 style="margin:0;">The List</h2>
       <span class="count-badge" id="countBadge">0 movies</span>
     </div>
+    <div class="pick-auth">
+      <input type="password" id="removalPasscode" placeholder="Removal password" autocomplete="off">
+    </div>
+    <div class="pick-status" id="removalStatus">Password required to remove a movie.</div>
     <div id="movieList">
       <div class="empty-state">No movies yet — be the first to add one.</div>
     </div>
@@ -493,8 +527,27 @@ function render() {
   const pickBtn =
     document.getElementById('pickBtn');
 
+  const pickPasscode =
+    document.getElementById('pickPasscode');
+
+  const pickStatus =
+    document.getElementById('pickStatus');
+
   pickBtn.disabled =
     data.movies.length < 2 || spinning;
+
+  pickPasscode.disabled = spinning;
+
+  if (spinning) {
+    pickBtn.textContent = 'Picking…';
+    pickStatus.textContent = 'Pick in progress — please don\'t refresh.';
+    pickStatus.classList.remove('error');
+  } else {
+    pickBtn.textContent = 'Pick a movie';
+    if (!pickStatus.classList.contains('error')) {
+      pickStatus.textContent = 'Passcode required to pick.';
+    }
+  }
 
 
   /* -------------------------
@@ -653,32 +706,55 @@ async function addMovie() {
 
 async function removeMovie(id) {
 
-  try {
+  const passcodeInput =
+    document.getElementById('removalPasscode');
 
-    const { error } = await db
-      .from('movies')
-      .delete()
-      .eq('id', id);
+  const removalStatus =
+    document.getElementById('removalStatus');
 
+  const passcode =
+    passcodeInput.value;
 
-    if (error) {
-      throw error;
+  if (!passcode) {
+    removalStatus.textContent =
+      'Enter the removal password first.';
+    removalStatus.classList.add('error');
+    passcodeInput.focus();
+    return;
+  }
+
+  removalStatus.textContent = 'Removing…';
+  removalStatus.classList.remove('error');
+
+  const { error } = await db.rpc(
+    'remove_movie',
+    {
+      p_movie_id: id,
+      p_passcode: passcode
+    }
+  );
+
+  if (error) {
+    console.error('Error removing movie:', error);
+    passcodeInput.value = '';
+
+    if (String(error.message || '').includes('INVALID_REMOVAL_PASSCODE')) {
+      removalStatus.textContent = 'Incorrect removal password.';
+    } else {
+      removalStatus.textContent =
+        'Could not remove the movie. Please try again.';
     }
 
-
-    await loadData();
-
-    render();
-
-
-  } catch (error) {
-
-    console.error('Error removing movie:', error);
-
-    showError(
-      'Could not remove the movie. Please try again.'
-    );
+    removalStatus.classList.add('error');
+    return;
   }
+
+  passcodeInput.value = '';
+  removalStatus.textContent = 'Movie removed.';
+  removalStatus.classList.remove('error');
+
+  await loadData();
+  render();
 }
 
 
@@ -700,7 +776,6 @@ document
 
     await removeMovie(id);
   });
-
 
 /* ============================================================
    ADD BUTTON
@@ -737,198 +812,115 @@ document
    PICK MOVIE
    ============================================================ */
 
-document
-  .getElementById('pickBtn')
-  .addEventListener('click', async () => {
-
-    if (
-      spinning ||
-      data.movies.length < 2
-    ) {
-      return;
-    }
-
-
-    spinning = true;
-
-    render();
-
-
-    /*
-       Reload immediately before spinning
-       so we have the newest possible list.
-    */
-
-    await loadData();
-
-
-    const pool = [...data.movies];
-
-
-    if (pool.length < 2) {
-
-      spinning = false;
-
-      render();
-
-      return;
-    }
-
-
-    const display =
-      document.getElementById('pickDisplay');
-
-    const meta =
-      document.getElementById('pickMeta');
-
-
-    display.classList.remove('empty');
-
-    meta.textContent = '';
-
-
-    /* -------------------------
-       SPIN ANIMATION
-       ------------------------- */
-
-    const spinDuration = 1800;
-
-    const stepTime = 90;
-
-    const startTime = Date.now();
-
-
-    await new Promise(resolve => {
-
-      const interval =
-        setInterval(() => {
-
-          const random =
-            pool[
-              Math.floor(
-                Math.random() * pool.length
-              )
-            ];
-
-
-          display.textContent =
-            random.title;
-
-
-          if (
-            Date.now() - startTime >=
-            spinDuration
-          ) {
-
-            clearInterval(interval);
-
-            resolve();
-          }
-
-        }, stepTime);
-
-    });
-
-
-    /*
-       Select the winner locally.
-       We then save that exact movie
-       to Supabase.
-    */
-
-    const winner =
-      pool[
-        Math.floor(
-          Math.random() * pool.length
-        )
-      ];
-
-
-    display.textContent =
-      winner.title;
-
-    meta.textContent =
-      'added by ' + winner.addedBy;
-
-
-    const now =
-      new Date();
-
-
-    const monthLabel =
-      now.toLocaleDateString(
-        undefined,
-        {
-          month: 'long',
-          year: 'numeric'
-        }
-      );
-
-
-    try {
-
-      /*
-         Add winner to history first.
-      */
-
-      const historyResult =
-        await db
-          .from('history')
-          .insert({
-            title: winner.title,
-            added_by: winner.addedBy,
-            picked_at: new Date().toISOString(),
-            month_label: monthLabel
-          });
-
-
-      if (historyResult.error) {
-        throw historyResult.error;
-      }
-
-
-      /*
-         Remove winner from the shared movie list.
-      */
-
-      const deleteResult =
-        await db
-          .from('movies')
-          .delete()
-          .eq('id', winner.id);
-
-
-      if (deleteResult.error) {
-        throw deleteResult.error;
-      }
-
-
-      /*
-         Reload shared data.
-      */
-
-      await loadData();
-
-      render();
-
-
-    } catch (error) {
-
-      console.error(
-        'Error saving movie pick:',
-        error
-      );
-
-
-      showError(
-        'Could not save the movie pick. Please try again.'
-      );
-    }
-
+async function pickMovie() {
+
+  if (spinning || data.movies.length < 2) {
+    return;
+  }
+
+  const passcodeInput =
+    document.getElementById('pickPasscode');
+
+  const pickStatus =
+    document.getElementById('pickStatus');
+
+  const passcode = passcodeInput.value;
+
+  if (!passcode) {
+    pickStatus.textContent = 'Enter the passcode first.';
+    pickStatus.classList.add('error');
+    passcodeInput.focus();
+    return;
+  }
+
+  spinning = true;
+  pickStatus.classList.remove('error');
+  render();
+
+  /*
+     The actual winner is chosen inside Supabase.
+     The passcode is checked server-side, so it is not stored
+     in the public GitHub HTML.
+  */
+  const { data: result, error } = await db.rpc(
+    'pick_movie',
+    { p_passcode: passcode }
+  );
+
+  if (error) {
+    console.error('Error picking movie:', error);
 
     spinning = false;
+    passcodeInput.value = '';
 
+    const message = String(error.message || '');
+
+    if (message.includes('INVALID_PASSCODE')) {
+      pickStatus.textContent = 'Incorrect passcode.';
+    } else if (message.includes('NOT_ENOUGH_MOVIES')) {
+      pickStatus.textContent = 'At least 2 movies are required.';
+      await loadData();
+    } else {
+      pickStatus.textContent = 'Could not pick a movie. Please try again.';
+    }
+
+    pickStatus.classList.add('error');
     render();
+    return;
+  }
+
+  const winner = Array.isArray(result) ? result[0] : result;
+
+  const display =
+    document.getElementById('pickDisplay');
+
+  const meta =
+    document.getElementById('pickMeta');
+
+  display.classList.remove('empty');
+  meta.textContent = '';
+
+  // Cosmetic spin animation only. The winner has already been
+  // safely finalized in Supabase before this animation begins.
+  const pool = data.movies.length ? [...data.movies] : [winner];
+  const spinDuration = 1800;
+  const stepTime = 90;
+  const startTime = Date.now();
+
+  await new Promise(resolve => {
+    const interval = setInterval(() => {
+      const random = pool[Math.floor(Math.random() * pool.length)];
+      display.textContent = random.title || random.movie_title;
+
+      if (Date.now() - startTime >= spinDuration) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, stepTime);
+  });
+
+  display.textContent = winner.title;
+  meta.textContent = 'added by ' + winner.added_by;
+
+  passcodeInput.value = '';
+
+  await loadData();
+
+  spinning = false;
+  pickStatus.classList.remove('error');
+  render();
+}
+
+document
+  .getElementById('pickBtn')
+  .addEventListener('click', pickMovie);
+
+document
+  .getElementById('pickPasscode')
+  .addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      pickMovie();
+    }
   });
 
 
