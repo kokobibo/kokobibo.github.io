@@ -133,7 +133,17 @@ button.pick-btn{
 button.pick-btn:hover:not(:disabled){ background: var(--velvet-bright); }
 button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
 
-.draw-timer{
+/* Hide any accidental anchor/permalink affordances. */
+    h1 a, h2 a, h3 a, p a, .card a, .marquee a, .history-row a {
+      color: inherit;
+      text-decoration: none;
+    }
+    h1 a::after, h2 a::after, h3 a::after, p a::after, .card a::after, .marquee a::after, .history-row a::after {
+      content: none !important;
+      display: none !important;
+    }
+
+    .draw-timer{
   margin-top: 12px;
   font-size: 13px;
   color: var(--gold);
@@ -317,7 +327,7 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
   </div>
 
   <div class="card pick-panel">
-    <h2>Tonight's Pick</h2>
+    <h2>Current Pick</h2>
     <div class="pick-display empty" id="pickDisplay">No movie selected yet</div>
     <div class="pick-meta" id="pickMeta"></div>
     <div class="draw-timer" id="drawTimer">Ready for the first draw.</div>
@@ -613,7 +623,10 @@ function render() {
     document.getElementById('historyList');
 
 
-  if (data.history.length === 0) {
+  // Keep Previous Picks hidden until there is an actual previous pick.
+  // The newest history entry is the current pick, so only older entries
+  // belong in the Previous Picks section.
+  if (data.history.length < 2) {
 
     historyCard.style.display = 'none';
 
@@ -622,7 +635,7 @@ function render() {
     historyCard.style.display = '';
 
     historyList.innerHTML =
-      data.history.map(item => `
+      data.history.slice(1).map(item => `
 
         <div class="history-row">
 
