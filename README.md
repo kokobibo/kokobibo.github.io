@@ -133,6 +133,14 @@ button.pick-btn{
 button.pick-btn:hover:not(:disabled){ background: var(--velvet-bright); }
 button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
 
+.draw-timer{
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--gold);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
 .pick-auth{
   display: flex;
   gap: 10px;
@@ -301,7 +309,7 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
 
   <div class="marquee">
     <h1>MOVIE CLUB</h1>
-    <p>One list. Everyone adds. One winner a month.</p>
+    <p>One list. Everyone adds. One draw every two weeks.</p>
   </div>
 
   <div class="storage-warning" id="storageWarning" style="display:none;">
@@ -310,12 +318,13 @@ button.pick-btn:disabled{ opacity: 0.5; cursor: default; }
 
   <div class="card pick-panel">
     <h2>Tonight's Pick</h2>
-    <div class="pick-display empty" id="pickDisplay">Add a few movies, then spin</div>
+    <div class="pick-display empty" id="pickDisplay">No movie selected yet</div>
     <div class="pick-meta" id="pickMeta"></div>
+    <div class="draw-timer" id="drawTimer">Ready for the first draw.</div>
     <div class="pick-auth">
       <input type="password" id="pickPasscode" placeholder="Passcode" autocomplete="off">
     </div>
-    <button class="pick-btn" id="pickBtn" disabled>Pick this month's movie</button>
+    <button class="pick-btn" id="pickBtn" disabled>Pick a movie</button>
     <div class="pick-status" id="pickStatus">Passcode required to pick.</div>
   </div>
 
@@ -393,6 +402,7 @@ let data = {
 };
 
 let spinning = false;
+let countdownTimer = null;
 
 
 /* ============================================================
@@ -454,6 +464,23 @@ async function loadData() {
 
     return false;
   }
+}
+
+
+function formatCountdown(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return days + 'd ' + String(hours).padStart(2, '0') + 'h ' + String(minutes).padStart(2, '0') + 'm ' + String(seconds).padStart(2, '0') + 's';
+}
+
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    render();
+  }, 1000);
 }
 
 
@@ -521,34 +548,59 @@ function render() {
 
 
   /* -------------------------
-     PICK BUTTON
+     CURRENT PICK + DRAW TIMER
      ------------------------- */
 
-  const pickBtn =
-    document.getElementById('pickBtn');
+  const pickBtn = document.getElementById('pickBtn');
+  const pickPasscode = document.getElementById('pickPasscode');
+  const pickStatus = document.getElementById('pickStatus');
+  const pickDisplay = document.getElementById('pickDisplay');
+  const pickMeta = document.getElementById('pickMeta');
+  const drawTimer = document.getElementById('drawTimer');
 
-  const pickPasscode =
-    document.getElementById('pickPasscode');
+  const latestPick = data.history.length ? data.history[0] : null;
+  const nextDrawTime = latestPick ? latestPick.pickedAt + (14 * 24 * 60 * 60 * 1000) : null;
+  const cooldownActive = nextDrawTime !== null && Date.now() < nextDrawTime;
 
-  const pickStatus =
-    document.getElementById('pickStatus');
+  if (latestPick) {
+    pickDisplay.classList.remove('empty');
+    pickDisplay.textContent = latestPick.title;
+    pickMeta.textContent = 'added by ' + latestPick.addedBy;
+  } else {
+    pickDisplay.classList.add('empty');
+    pickDisplay.textContent = 'No movie selected yet';
+    pickMeta.textContent = '';
+  }
 
-  pickBtn.disabled =
-    data.movies.length < 2 || spinning;
-
-  pickPasscode.disabled = spinning;
+  pickBtn.disabled = data.movies.length < 2 || spinning || cooldownActive;
+  pickPasscode.disabled = spinning || cooldownActive;
 
   if (spinning) {
     pickBtn.textContent = 'Picking…';
     pickStatus.textContent = 'Pick in progress — please don\'t refresh.';
     pickStatus.classList.remove('error');
-  } else {
-    pickBtn.textContent = 'Pick a movie';
+  } else if (cooldownActive) {
+    pickBtn.textContent = 'Next draw coming soon';
     if (!pickStatus.classList.contains('error')) {
-      pickStatus.textContent = 'Passcode required to pick.';
+      pickStatus.textContent = 'The current movie stays selected until the next draw.';
+    }
+  } else {
+    pickBtn.textContent = latestPick ? 'Reroll / Pick a new movie' : 'Pick a movie';
+    if (!pickStatus.classList.contains('error')) {
+      pickStatus.textContent = data.movies.length < 2 ? 'Add at least 2 movies to draw.' : 'Enter the passcode to draw.';
     }
   }
 
+  if (nextDrawTime) {
+    const remaining = Math.max(0, nextDrawTime - Date.now());
+    if (remaining > 0) {
+      drawTimer.textContent = 'Next draw in ' + formatCountdown(remaining);
+    } else {
+      drawTimer.textContent = 'Next draw is ready.';
+    }
+  } else {
+    drawTimer.textContent = 'Ready for the first draw.';
+  }
 
   /* -------------------------
      HISTORY
@@ -818,6 +870,12 @@ async function pickMovie() {
     return;
   }
 
+  const latestPick = data.history.length ? data.history[0] : null;
+  if (latestPick && Date.now() < latestPick.pickedAt + (14 * 24 * 60 * 60 * 1000)) {
+    document.getElementById('pickStatus').textContent = 'The next draw is not ready yet.';
+    return;
+  }
+
   const passcodeInput =
     document.getElementById('pickPasscode');
 
@@ -857,8 +915,11 @@ async function pickMovie() {
 
     if (message.includes('INVALID_PASSCODE')) {
       pickStatus.textContent = 'Incorrect passcode.';
-    } else if (message.includes('NOT_ENOUGH_MOVIES')) {
-      pickStatus.textContent = 'At least 2 movies are required.';
+    } else if (message.includes('NO_MOVIES')) {
+      pickStatus.textContent = 'There are no movies to pick from.';
+      await loadData();
+    } else if (message.includes('DRAW_NOT_READY')) {
+      pickStatus.textContent = 'The next draw is not ready yet.';
       await loadData();
     } else {
       pickStatus.textContent = 'Could not pick a movie. Please try again.';
@@ -999,6 +1060,7 @@ async function initialize() {
 
 
 initialize();
+startCountdown();
 </script>
 
 </body>
