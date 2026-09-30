@@ -1,3 +1,4 @@
+[movie-club-password-protected-with-removal (1).html](https://github.com/user-attachments/files/32870083/movie-club-password-protected-with-removal.1.html)
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -477,6 +478,17 @@ async function loadData() {
 }
 
 
+// Draw schedule: Mondays at 8:00 PM local time, every 2 weeks,
+// anchored to October 12, 2026. The browser's local timezone is used.
+const FIRST_DRAW_AT = new Date(2026, 9, 12, 20, 0, 0, 0).getTime();
+const DRAW_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
+
+function getNextDrawTime(now = Date.now()) {
+  if (now <= FIRST_DRAW_AT) return FIRST_DRAW_AT;
+  const elapsedIntervals = Math.ceil((now - FIRST_DRAW_AT) / DRAW_INTERVAL_MS);
+  return FIRST_DRAW_AT + elapsedIntervals * DRAW_INTERVAL_MS;
+}
+
 function formatCountdown(ms) {
   const totalSeconds = Math.floor(ms / 1000);
   const days = Math.floor(totalSeconds / 86400);
@@ -490,6 +502,10 @@ function startCountdown() {
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
     render();
+
+    // Scheduled draws are handled by Supabase in the background.
+    // The browser timer only updates the countdown; manual draws still
+    // require the passcode when the user presses the button.
   }, 1000);
 }
 
@@ -569,8 +585,8 @@ function render() {
   const drawTimer = document.getElementById('drawTimer');
 
   const latestPick = data.history.length ? data.history[0] : null;
-  const nextDrawTime = latestPick ? latestPick.pickedAt + (14 * 24 * 60 * 60 * 1000) : null;
-  const cooldownActive = nextDrawTime !== null && Date.now() < nextDrawTime;
+  const nextDrawTime = getNextDrawTime();
+  const cooldownActive = Date.now() < nextDrawTime;
 
   if (latestPick) {
     pickDisplay.classList.remove('empty');
@@ -582,34 +598,31 @@ function render() {
     pickMeta.textContent = '';
   }
 
-  pickBtn.disabled = data.movies.length < 2 || spinning || cooldownActive;
-  pickPasscode.disabled = spinning || cooldownActive;
+  pickBtn.disabled = data.movies.length < 2 || spinning;
+  pickPasscode.disabled = spinning;
 
   if (spinning) {
     pickBtn.textContent = 'Picking…';
     pickStatus.textContent = 'Pick in progress — please don\'t refresh.';
     pickStatus.classList.remove('error');
-  } else if (cooldownActive) {
-    pickBtn.textContent = 'Next draw coming soon';
-    if (!pickStatus.classList.contains('error')) {
-      pickStatus.textContent = 'The current movie stays selected until the next draw.';
-    }
   } else {
     pickBtn.textContent = latestPick ? 'Reroll / Pick a new movie' : 'Pick a movie';
     if (!pickStatus.classList.contains('error')) {
-      pickStatus.textContent = data.movies.length < 2 ? 'Add at least 2 movies to draw.' : 'Enter the passcode to draw.';
+      if (data.movies.length < 2) {
+        pickStatus.textContent = 'Add at least 2 movies to draw.';
+      } else if (cooldownActive) {
+        pickStatus.textContent = 'You can enter the passcode now; the draw will be available when the timer ends.';
+      } else {
+        pickStatus.textContent = 'Enter the passcode to draw.';
+      }
     }
   }
 
-  if (nextDrawTime) {
-    const remaining = Math.max(0, nextDrawTime - Date.now());
-    if (remaining > 0) {
-      drawTimer.textContent = 'Next draw in ' + formatCountdown(remaining);
-    } else {
-      drawTimer.textContent = 'Next draw is ready.';
-    }
+  const remaining = Math.max(0, nextDrawTime - Date.now());
+  if (remaining > 0) {
+    drawTimer.textContent = 'Next draw Monday at 8:00 PM · ' + formatCountdown(remaining);
   } else {
-    drawTimer.textContent = 'Ready for the first draw.';
+    drawTimer.textContent = 'Draw time reached — ready to spin.';
   }
 
   /* -------------------------
@@ -880,12 +893,6 @@ document
 async function pickMovie() {
 
   if (spinning || data.movies.length < 2) {
-    return;
-  }
-
-  const latestPick = data.history.length ? data.history[0] : null;
-  if (latestPick && Date.now() < latestPick.pickedAt + (14 * 24 * 60 * 60 * 1000)) {
-    document.getElementById('pickStatus').textContent = 'The next draw is not ready yet.';
     return;
   }
 
