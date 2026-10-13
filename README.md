@@ -1,4 +1,4 @@
-[movie-club-password-protected-with-removal (1).html](https://github.com/user-attachments/files/32870083/movie-club-password-protected-with-removal.1.html)
+[movie-club-password-protected-with-removal (2).html](https://github.com/user-attachments/files/33362764/movie-club-password-protected-with-removal.2.html)
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -586,6 +586,7 @@ function render() {
 
   const latestPick = data.history.length ? data.history[0] : null;
   const nextDrawTime = getNextDrawTime();
+  // Manual draws are allowed any time when the passcode is correct.
   const cooldownActive = Date.now() < nextDrawTime;
 
   if (latestPick) {
@@ -611,7 +612,7 @@ function render() {
       if (data.movies.length < 2) {
         pickStatus.textContent = 'Add at least 2 movies to draw.';
       } else if (cooldownActive) {
-        pickStatus.textContent = 'You can enter the passcode now; the draw will be available when the timer ends.';
+        pickStatus.textContent = 'Enter the passcode to draw manually now, or wait for the scheduled automatic draw.';
       } else {
         pickStatus.textContent = 'Enter the passcode to draw.';
       }
@@ -939,7 +940,7 @@ async function pickMovie() {
       pickStatus.textContent = 'There are no movies to pick from.';
       await loadData();
     } else if (message.includes('DRAW_NOT_READY')) {
-      pickStatus.textContent = 'The next draw is not ready yet.';
+      pickStatus.textContent = 'The database still has the old 14-day lock. Run the updated SQL in Supabase, then try again.';
       await loadData();
     } else {
       pickStatus.textContent = 'Could not pick a movie. Please try again.';
